@@ -2,6 +2,7 @@ var state = {
   classData: null,
   groups: [],
   members: [],
+  counts: {},
   angle: 0,
   spinning: false
 };
@@ -15,7 +16,6 @@ async function loadClass() {
   if (!classes.length) throw new Error("Chưa có lớp trong database.");
 
   var cls = classes[0];
-
   var groups = await rest("/groups?class_id=eq." + encodeURIComponent(cls.id) + "&select=*&order=position.asc,created_at.asc");
   var members = await rest("/members?class_id=eq." + encodeURIComponent(cls.id) + "&select=*&order=name.asc");
 
@@ -31,29 +31,48 @@ async function loadClass() {
     });
   });
 
+  var countData = await rpc("group_counts", {p_class_id: cls.id});
+
   state.classData = {id: cls.id, name: cls.name};
   state.groups = groups;
   state.members = members;
+  state.counts = countData || {};
   drawWheel();
 }
 
-function weightedRandom(member) {
-  var total = 0;
+function groupFull(g) {
+  var limit = Number(g.max_members) || 0;
+  return limit > 0 && (Number(state.counts[g.id]) || 0) >= limit;
+}
 
-  state.groups.forEach(function(g) {
+function availableGroups(member) {
+  return state.groups.filter(function(g) {
+    return !groupFull(g) && (Number(member.weights[g.id]) || 0) > 0;
+  });
+}
+
+function weightedRandom(member) {
+  var available = availableGroups(member);
+
+  if (!available.length) return -1;
+
+  var total = 0;
+  available.forEach(function(g) {
     total += Number(member.weights[g.id]) || 0;
   });
 
-  if (total <= 0) return Math.floor(Math.random() * state.groups.length);
+  if (total <= 0) return -1;
 
   var r = Math.random() * total;
 
-  for (var i = 0; i < state.groups.length; i++) {
-    r -= Number(member.weights[state.groups[i].id]) || 0;
-    if (r < 0) return i;
+  for (var i = 0; i < available.length; i++) {
+    r -= Number(member.weights[available[i].id]) || 0;
+    if (r < 0) {
+      return state.groups.findIndex(function(g) { return g.id === available[i].id; });
+    }
   }
 
-  return state.groups.length - 1;
+  return state.groups.findIndex(function(g) { return g.id === available[available.length - 1].id; });
 }
 
 function drawWheel() {
@@ -88,10 +107,7 @@ function drawWheel() {
 
     var mid = (a0 + a1) / 2;
     ctx.save();
-    ctx.translate(
-      cx + Math.cos(mid) * radius * .62,
-      cy + Math.sin(mid) * radius * .62
-    );
+    ctx.translate(cx + Math.cos(mid) * radius * .62, cy + Math.sin(mid) * radius * .62);
     ctx.rotate(mid + Math.PI / 2);
     ctx.fillStyle = "#fff";
     ctx.font = "bold 25px Arial";
@@ -140,18 +156,15 @@ function spinToIndex(index, done) {
   var duration = 4600;
   var t0 = performance.now();
 
-  function easeOut(t) {
-    return 1 - Math.pow(1 - t, 4);
-  }
+  function easeOut(t) { return 1 - Math.pow(1 - t, 4); }
 
   function frame(now) {
     var t = Math.min(1, (now - t0) / duration);
     state.angle = start + (end - start) * easeOut(t);
     drawWheel();
 
-    if (t < 1) {
-      requestAnimationFrame(frame);
-    } else {
+    if (t < 1) requestAnimationFrame(frame);
+    else {
       state.angle = targetBase;
       drawWheel();
       done();
@@ -163,15 +176,12 @@ function spinToIndex(index, done) {
 
 function findMember(name) {
   var q = name.trim().toLowerCase();
-  return state.members.find(function(m) {
-    return m.name.trim().toLowerCase() === q;
-  });
+  return state.members.find(function(m) { return m.name.trim().toLowerCase() === q; });
 }
 
-function addHistory(member, group) {
+async function addHistory(member, group) {
   if (!state.classData) return;
-
-  rest("/history", {
+  await rest("/history", {
     method: "POST",
     headers: apiHeaders({"Prefer": "return=minimal"}),
     body: JSON.stringify({
@@ -179,10 +189,10 @@ function addHistory(member, group) {
       member_id: member.id,
       group_id: group.id
     })
-  }).catch(function() {});
+  });
 }
 
-$("spinBtn").addEventListener("click", function() {
+$("spinBtn").addEventListener("click", async function() {
   if (state.spinning) return;
 
   var member = findMember($("memberName").value);
@@ -199,21 +209,49 @@ $("spinBtn").addEventListener("click", function() {
     return;
   }
 
-  var index = weightedRandom(member);
-  var selected = state.groups[index];
+  var already = await rpc("member_assignment", {
+    p_class_id: state.classData.id,
+    p_member_id: member.id
+  });
 
+  if (already && already.group_id) {
+    var oldGroup = state.groups.find(function(g) { return g.id === already.group_id; });
+    if (oldGroup) {
+      $("resultGroup").textContent = oldGroup.name;
+      $("result").classList.remove("hidden");
+      $("status").textContent = "Tên này đã được chia vào " + oldGroup.name + ".";
+      $("status").className = "status success";
+      return;
+    }
+  }
+
+  var index = weightedRandom(member);
+
+  if (index < 0) {
+    $("status").textContent = "Các nhóm mà tên này có xác suất đều đã đủ thành viên.";
+    $("status").className = "status error";
+    return;
+  }
+
+  var selected = state.groups[index];
   state.spinning = true;
   $("spinBtn").disabled = true;
   $("result").classList.add("hidden");
   $("status").textContent = "Đang quay...";
   $("status").className = "status";
 
-  spinToIndex(index, function() {
-    $("resultGroup").textContent = selected.name;
-    $("result").classList.remove("hidden");
-    $("status").textContent = "Đã quay xong.";
-    $("status").className = "status success";
-    addHistory(member, selected);
+  spinToIndex(index, async function() {
+    try {
+      await addHistory(member, selected);
+      state.counts[selected.id] = (Number(state.counts[selected.id]) || 0) + 1;
+      $("resultGroup").textContent = selected.name;
+      $("result").classList.remove("hidden");
+      $("status").textContent = "Đã quay xong.";
+      $("status").className = "status success";
+    } catch (e) {
+      $("status").textContent = "Không lưu được kết quả. Vui lòng thử lại.";
+      $("status").className = "status error";
+    }
 
     state.spinning = false;
     $("spinBtn").disabled = false;
@@ -242,32 +280,11 @@ $("loginBtn").addEventListener("click", async function() {
 
   try {
     var token = await rpc("admin_login", {p_password: password});
-
-    if (!token || typeof token !== "string") {
-      throw new Error("Supabase không trả về phiên đăng nhập.");
-    }
-
-    // Kiểm tra token ngay trước khi chuyển sang trang Admin.
-    var check = await rpc("admin_api", {
-      p_token: token,
-      p_action: "classes_list",
-      p_payload: {}
-    });
-
-    if (check && check.error === "INVALID_SESSION") {
-      throw new Error("Token đăng nhập không hợp lệ.");
-    }
-
+    if (!token) throw new Error("Sai mật khẩu.");
     sessionStorage.setItem("groupPickerAdminToken", token);
     location.href = "admin.html";
   } catch (e) {
-    console.error("ADMIN LOGIN ERROR:", e);
-    var msg = e && e.message ? e.message : String(e);
-    if (msg.indexOf("INVALID_PASSWORD") !== -1) {
-      $("loginError").textContent = "Sai mật khẩu.";
-    } else {
-      $("loginError").textContent = "Lỗi đăng nhập: " + msg;
-    }
+    $("loginError").textContent = e.message || "Đăng nhập thất bại.";
   } finally {
     $("loginBtn").disabled = false;
   }

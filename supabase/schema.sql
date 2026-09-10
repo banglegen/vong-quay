@@ -16,8 +16,13 @@ create table if not exists public.groups(
   class_id uuid not null references public.classes(id) on delete cascade,
   name text not null,
   position int not null default 0,
+  max_members int not null default 0 check(max_members >= 0),
   created_at timestamptz not null default now()
 );
+
+alter table public.groups add column if not exists max_members int not null default 0;
+alter table public.groups drop constraint if exists groups_max_members_check;
+alter table public.groups add constraint groups_max_members_check check(max_members >= 0);
 
 create table if not exists public.members(
   id uuid primary key default gen_random_uuid(),
@@ -102,7 +107,7 @@ begin
   from public.admin_settings
   where id = 1;
 
-  if v_hash is null or p_password is null or v_hash <> extensions.crypt(p_password, v_hash) then
+  if v_hash is null or p_password is null or v_hash <> crypt(p_password, v_hash) then
     raise exception 'INVALID_PASSWORD';
   end if;
 
@@ -110,7 +115,7 @@ begin
 
   insert into public.admin_sessions(token_hash, expires_at)
   values (
-    encode(extensions.digest(v_token::bytea, 'sha256'), 'hex'),
+    encode(digest(v_token, 'sha256'), 'hex'),
     now() + interval '12 hours'
   );
 
@@ -145,7 +150,7 @@ declare
 begin
   select exists(
     select 1 from public.admin_sessions
-    where token_hash = encode(extensions.digest(coalesce(p_token,'')::bytea, 'sha256'), 'hex')
+    where token_hash = encode(digest(coalesce(p_token,''), 'sha256'), 'hex')
       and expires_at > now()
   ) into v_ok;
 
@@ -190,8 +195,8 @@ begin
       select coalesce(max(position), -1) + 1 into v_position
       from public.groups where class_id = v_class_id;
 
-      insert into public.groups(class_id,name,position)
-      values(v_class_id,trim(p_payload->>'name'),v_position)
+      insert into public.groups(class_id,name,position,max_members)
+      values(v_class_id,trim(p_payload->>'name'),v_position,greatest(0,coalesce((p_payload->>'max_members')::integer,0)))
       returning id into v_group_id;
 
       insert into public.member_weights(member_id,group_id,percent)
@@ -201,7 +206,8 @@ begin
 
     when 'group_update' then
       update public.groups
-      set name = trim(p_payload->>'name')
+      set name = trim(p_payload->>'name'),
+          max_members = greatest(0, coalesce((p_payload->>'max_members')::integer, 0))
       where id = (p_payload->>'id')::uuid;
       return jsonb_build_object('ok',true);
 
@@ -298,6 +304,45 @@ begin
 end;
 $$;
 
+-- Đếm số thành viên đã được phân vào từng nhóm. 0 = không giới hạn.
+create or replace function public.group_counts(p_class_id uuid)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_object_agg(group_id::text, member_count), '{}'::jsonb)
+  from (
+    select g.id as group_id, count(distinct h.member_id)::integer as member_count
+    from public.groups g
+    left join public.history h
+      on h.group_id = g.id
+     and h.class_id = p_class_id
+    where g.class_id = p_class_id
+    group by g.id
+  ) x;
+$$;
+
+create or replace function public.member_assignment(p_class_id uuid, p_member_id uuid)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select jsonb_build_object('group_id', h.group_id)
+     from public.history h
+     where h.class_id = p_class_id
+       and h.member_id = p_member_id
+     order by h.created_at desc
+     limit 1),
+    '{}'::jsonb
+  );
+$$;
+
+grant execute on function public.group_counts(uuid) to anon, authenticated;
+grant execute on function public.member_assignment(uuid,uuid) to anon, authenticated;
+
 -- Cho phép trang GitHub Pages gọi 2 RPC
 grant execute on function public.admin_login(text) to anon, authenticated;
 grant execute on function public.admin_api(text,text,jsonb) to anon, authenticated;
@@ -305,7 +350,7 @@ grant execute on function public.admin_api(text,text,jsonb) to anon, authenticat
 -- Đặt mật khẩu admin lần đầu.
 -- Nếu chạy lại dòng này, mật khẩu sẽ được đổi thành BuiAdmin@2026.
 insert into public.admin_settings(id,password_hash)
-values(1, extensions.crypt('BuiAdmin@2026', extensions.gen_salt('bf')))
+values(1, crypt('BuiAdmin@2026', gen_salt('bf')))
 on conflict(id) do update
 set password_hash=excluded.password_hash,
     updated_at=now();

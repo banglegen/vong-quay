@@ -1,8 +1,6 @@
 var token = sessionStorage.getItem("groupPickerAdminToken");
 
-if (!token) {
-  location.href = "index.html";
-}
+if (!token) location.href = "index.html";
 
 var $ = function(id) { return document.getElementById(id); };
 var esc = function(s) {
@@ -12,25 +10,18 @@ var esc = function(s) {
 };
 
 async function admin(action, payload) {
-  try {
-    var data = await rpc("admin_api", {
-      p_token: token,
-      p_action: action,
-      p_payload: payload || {}
-    });
+  var data = await rpc("admin_api", {
+    p_token: token,
+    p_action: action,
+    p_payload: payload || {}
+  });
 
-    if (data && data.error === "INVALID_SESSION") {
-      sessionStorage.removeItem("groupPickerAdminToken");
-      alert("Phiên Admin đã hết hạn. Vui lòng đăng nhập lại.");
-      location.href = "index.html";
-      return null;
-    }
-
-    return data;
-  } catch (e) {
-    console.error("ADMIN API ERROR:", action, e);
-    throw e;
+  if (data && data.error === "INVALID_SESSION") {
+    sessionStorage.removeItem("groupPickerAdminToken");
+    location.href = "index.html";
   }
+
+  return data;
 }
 
 var classes = [];
@@ -87,8 +78,7 @@ function render() {
 
   $("groupList").innerHTML = groups.length
     ? groups.map(function(g) {
-        return "<div class='list-row'><span>" + esc(g.name) +
-          "</span><button class='mini' data-edit-g='" + g.id + "'>Sửa</button>" +
+        return "<div class='list-row group-row'><span><b>" + esc(g.name) + "</b><small>Giới hạn: " + (Number(g.max_members) > 0 ? Number(g.max_members) + " người" : "Không giới hạn") + "</small></span><button class='mini' data-edit-g='" + g.id + "'>Sửa</button>" +
           "<button class='mini red' data-del-g='" + g.id + "'>Xóa</button></div>";
       }).join("")
     : "<div class='empty'>Chưa có nhóm.</div>";
@@ -190,7 +180,11 @@ $("addGroupBtn").onclick = async function() {
   var name = $("groupName").value.trim();
   if (!name) return;
 
-  await admin("group_add", {class_id: cls.id, name: name});
+  var limitText = prompt("Số thành viên tối đa (0 = không giới hạn):", "0");
+  if (limitText === null) return;
+  var max_members = Math.max(0, Math.floor(Number(limitText) || 0));
+
+  await admin("group_add", {class_id: cls.id, name: name, max_members: max_members});
   $("groupName").value = "";
   await load();
 };
@@ -220,7 +214,10 @@ $("groupList").onclick = async function(e) {
     var n = prompt("Tên nhóm:", g.name);
 
     if (n && n.trim()) {
-      await admin("group_update", {id: id, name: n.trim()});
+      var limitText = prompt("Số thành viên tối đa (0 = không giới hạn):", Number(g.max_members) || 0);
+      if (limitText === null) return;
+      var limit = Math.max(0, Math.floor(Number(limitText) || 0));
+      await admin("group_update", {id: id, name: n.trim(), max_members: limit});
       await load();
     }
   } else if (e.target.dataset.delG && confirm("Xóa nhóm?")) {
@@ -283,3 +280,16 @@ $("logoutBtn").onclick = function() {
 load().catch(function(e) {
   $("historyList").innerHTML = "<div class='empty'>" + esc(e.message) + "</div>";
 });
+
+
+$("clearHistoryBtn").onclick = async function() {
+  if (!cls) return;
+  if (!confirm("Xóa toàn bộ lịch sử của lớp này?")) return;
+  await admin("history_delete", {class_id: cls.id});
+  await load();
+};
+
+$("logoutBtn").onclick = function() {
+  sessionStorage.removeItem("groupPickerAdminToken");
+  location.href = "index.html";
+};

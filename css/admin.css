@@ -26,3 +26,5 @@ td input.weight{width:85px;padding:8px}
   .head-actions .btn{flex:1}
   .card{padding:18px}
 }
+
+.group-row span{display:flex;flex-direction:column;gap:3px}.group-row small{color:#80958a;font-size:12px}

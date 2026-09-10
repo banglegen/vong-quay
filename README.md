@@ -1,81 +1,30 @@
 # Group Picker - Supabase
 
-## 1. Cấu hình Supabase
+## Tính năng
+- Trang thành viên: nhập tên và quay vòng.
+- Admin: đăng nhập bằng mật khẩu `BuiAdmin@2026` (mật khẩu được lưu dạng hash trong Supabase).
+- Quản lý lớp, thành viên, nhóm.
+- Mỗi nhóm có **giới hạn thành viên tối đa**. Nhập `0` nghĩa là không giới hạn.
+- Khi nhóm đủ số người, nhóm đó tự động bị loại khỏi lượt quay.
+- Mỗi thành viên chỉ được chia một lần; quay lại cùng tên sẽ hiện nhóm đã được chia.
+- Xác suất từng thành viên theo từng nhóm vẫn được chỉnh trong Admin và tổng phải bằng 100%.
+- Vòng quay luôn chia đều theo số nhóm; phần trăm chỉ dùng để chọn kết quả.
+- Lịch sử dùng chung trên Supabase.
 
-Mở `js/config.js` và điền:
+## Cài đặt
+1. Vào Supabase SQL Editor và chạy toàn bộ `supabase/schema.sql`.
+2. Sửa `js/config.js`:
+   - `SUPABASE_URL`: URL project Supabase, không có `/` cuối.
+   - `SUPABASE_KEY`: Publishable key.
+3. Upload toàn bộ thư mục lên GitHub Pages.
 
-```js
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-const SUPABASE_KEY = "YOUR-PUBLISHABLE-KEY";
-```
+## Cấu hình giới hạn nhóm
+Khi thêm nhóm, Admin sẽ hỏi:
+- `0`: không giới hạn
+- `5`: tối đa 5 thành viên
+- `10`: tối đa 10 thành viên
 
-Dùng **Publishable key**, không dùng Secret key/service_role.
+Khi sửa nhóm, có thể đổi giới hạn tương tự.
 
-## 2. Tạo database
-
-Vào **Supabase → SQL Editor**, chạy toàn bộ file:
-
-`supabase/schema.sql`
-
-File này tạo:
-- classes
-- groups
-- members
-- member_weights
-- history
-- admin_settings
-- admin_sessions
-- RPC đăng nhập admin
-- RPC CRUD admin
-
-## 3. Mật khẩu admin
-
-Mật khẩu mặc định:
-
-`BuiAdmin@2026`
-
-Không cần GitHub Auth, không cần tạo User trong Authentication.
-
-Nếu muốn đổi mật khẩu, sửa dòng cuối trong `schema.sql` rồi chạy lại đoạn `insert into public.admin_settings...`, hoặc dùng SQL:
-
-```sql
-update public.admin_settings
-set password_hash = crypt('MAT_KHAU_MOI', gen_salt('bf')),
-    updated_at = now()
-where id = 1;
-```
-
-Mật khẩu được lưu dưới dạng hash.
-
-## 4. Chạy web
-
-Upload toàn bộ thư mục lên GitHub Pages.
-
-Trang thành viên:
-- nhập tên
-- bấm quay
-- kết quả dùng xác suất đã cấu hình trong admin
-- vòng quay vẫn chia đều theo số nhóm
-- lịch sử được lưu chung trên Supabase
-
-Trang admin:
-- thêm/sửa/xóa lớp
-- thêm/sửa/xóa thành viên
-- thêm/sửa/xóa nhóm
-- chỉnh xác suất từng thành viên
-- xem/xóa lịch sử
-
-Admin login dùng một mật khẩu duy nhất và phiên đăng nhập có thời hạn.
-
-> Lưu ý: các trọng số hiện được trang thành viên đọc từ Supabase để thực hiện weighted random phía trình duyệt. Nếu cần giấu tuyệt đối các trọng số khỏi người dùng, nên chuyển việc chọn nhóm sang RPC/Edge Function phía server.
-
-
-## 5. Nếu đăng nhập không được
-
-Sau khi chạy `schema.sql`, test trong Supabase SQL Editor:
-
-```sql
-select public.admin_login('BuiAdmin@2026');
-```
-
-Nếu trả về một chuỗi token dài thì database đã hoạt động. Sau khi cập nhật file web, dùng `Ctrl + F5` để tải JavaScript mới trên GitHub Pages.
+## Lưu ý migration
+Nếu database đã có bảng `groups`, schema có `ALTER TABLE ... ADD COLUMN IF NOT EXISTS max_members` để thêm cột mới mà không cần xóa dữ liệu.
