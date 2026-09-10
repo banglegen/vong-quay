@@ -19,18 +19,6 @@ async function loadClass() {
   var groups = await rest("/groups?class_id=eq." + encodeURIComponent(cls.id) + "&select=*&order=position.asc,created_at.asc");
   var members = await rest("/members?class_id=eq." + encodeURIComponent(cls.id) + "&select=*&order=name.asc");
 
-  var ids = members.map(function(m) { return m.id; });
-  var weights = ids.length
-    ? await rest("/member_weights?member_id=in.(" + ids.join(",") + ")&select=*")
-    : [];
-
-  members.forEach(function(m) {
-    m.weights = {};
-    weights.forEach(function(w) {
-      if (w.member_id === m.id) m.weights[w.group_id] = Number(w.percent);
-    });
-  });
-
   var countData = await rpc("group_counts", {p_class_id: cls.id});
 
   state.classData = {id: cls.id, name: cls.name};
@@ -38,41 +26,6 @@ async function loadClass() {
   state.members = members;
   state.counts = countData || {};
   drawWheel();
-}
-
-function groupFull(g) {
-  var limit = Number(g.max_members) || 0;
-  return limit > 0 && (Number(state.counts[g.id]) || 0) >= limit;
-}
-
-function availableGroups(member) {
-  return state.groups.filter(function(g) {
-    return !groupFull(g) && (Number(member.weights[g.id]) || 0) > 0;
-  });
-}
-
-function weightedRandom(member) {
-  var available = availableGroups(member);
-
-  if (!available.length) return -1;
-
-  var total = 0;
-  available.forEach(function(g) {
-    total += Number(member.weights[g.id]) || 0;
-  });
-
-  if (total <= 0) return -1;
-
-  var r = Math.random() * total;
-
-  for (var i = 0; i < available.length; i++) {
-    r -= Number(member.weights[available[i].id]) || 0;
-    if (r < 0) {
-      return state.groups.findIndex(function(g) { return g.id === available[i].id; });
-    }
-  }
-
-  return state.groups.findIndex(function(g) { return g.id === available[available.length - 1].id; });
 }
 
 function drawWheel() {
@@ -179,83 +132,27 @@ function findMember(name) {
   return state.members.find(function(m) { return m.name.trim().toLowerCase() === q; });
 }
 
-async function addHistory(member, group) {
-  if (!state.classData) return;
-  await rest("/history", {
-    method: "POST",
-    headers: apiHeaders({"Prefer": "return=minimal"}),
-    body: JSON.stringify({
-      class_id: state.classData.id,
-      member_id: member.id,
-      group_id: group.id
-    })
-  });
-}
-
 $("spinBtn").addEventListener("click", async function() {
   if (state.spinning) return;
-
-  var member = findMember($("memberName").value);
-
-  if (!member) {
-    $("status").textContent = "Không tìm thấy tên này trong lớp.";
-    $("status").className = "status error";
-    return;
-  }
-
-  if (!state.groups.length) {
-    $("status").textContent = "Lớp chưa có nhóm.";
-    $("status").className = "status error";
-    return;
-  }
-
-  var already = await rpc("member_assignment", {
-    p_class_id: state.classData.id,
-    p_member_id: member.id
-  });
-
-  if (already && already.group_id) {
-    var oldGroup = state.groups.find(function(g) { return g.id === already.group_id; });
-    if (oldGroup) {
-      $("resultGroup").textContent = oldGroup.name;
-      $("result").classList.remove("hidden");
-      $("status").textContent = "Tên này đã được chia vào " + oldGroup.name + ".";
-      $("status").className = "status success";
-      return;
-    }
-  }
-
-  var index = weightedRandom(member);
-
-  if (index < 0) {
-    $("status").textContent = "Các nhóm mà tên này có xác suất đều đã đủ thành viên.";
-    $("status").className = "status error";
-    return;
-  }
-
-  var selected = state.groups[index];
-  state.spinning = true;
-  $("spinBtn").disabled = true;
-  $("result").classList.add("hidden");
-  $("status").textContent = "Đang quay...";
-  $("status").className = "status";
-
-  spinToIndex(index, async function() {
-    try {
-      await addHistory(member, selected);
-      state.counts[selected.id] = (Number(state.counts[selected.id]) || 0) + 1;
-      $("resultGroup").textContent = selected.name;
-      $("result").classList.remove("hidden");
-      $("status").textContent = "Đã quay xong.";
-      $("status").className = "status success";
-    } catch (e) {
-      $("status").textContent = "Không lưu được kết quả. Vui lòng thử lại.";
-      $("status").className = "status error";
-    }
-
-    state.spinning = false;
-    $("spinBtn").disabled = false;
-  });
+  var member=findMember($("memberName").value);
+  if (!member) { $("status").textContent="Không tìm thấy tên này trong lớp."; $("status").className="status error"; return; }
+  if (!state.groups.length) { $("status").textContent="Lớp chưa có nhóm."; $("status").className="status error"; return; }
+  state.spinning=true; $("spinBtn").disabled=true; $("result").classList.add("hidden"); $("status").textContent="Đang kiểm tra nhóm còn chỗ..."; $("status").className="status";
+  try {
+    var result=await rpc("assign_member",{p_class_id:state.classData.id,p_member_id:member.id});
+    if (!result || result.error) throw new Error(result && result.error==="NO_AVAILABLE_GROUP" ? "Các nhóm mà tên này có xác suất đều đã đầy." : "Không thể chia nhóm. Vui lòng thử lại.");
+    var selected=state.groups.find(function(g){return g.id===result.group_id;});
+    if (!selected) throw new Error("Không tìm thấy nhóm được trả về.");
+    var index=state.groups.findIndex(function(g){return g.id===result.group_id;});
+    $("status").textContent="Đang quay...";
+    spinToIndex(index,function(){
+      $("resultGroup").textContent=selected.name; $("result").classList.remove("hidden");
+      $("status").textContent=result.already_assigned ? "Tên này đã được chia vào "+selected.name+"." : "Đã quay xong.";
+      $("status").className="status success";
+      if (!result.already_assigned) state.counts[selected.id]=result.member_count || ((Number(state.counts[selected.id])||0)+1);
+      state.spinning=false; $("spinBtn").disabled=false;
+    });
+  } catch(e) { $("status").textContent=e.message || "Không thể chia nhóm."; $("status").className="status error"; state.spinning=false; $("spinBtn").disabled=false; }
 });
 
 $("adminBtn").addEventListener("click", function() {

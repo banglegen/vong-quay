@@ -46,6 +46,16 @@ create table if not exists public.history(
   created_at timestamptz not null default now()
 );
 
+delete from public.history h
+where h.member_id is not null
+  and exists (
+    select 1 from public.history newer
+    where newer.class_id=h.class_id and newer.member_id=h.member_id
+      and (newer.created_at>h.created_at or (newer.created_at=h.created_at and newer.id>h.id))
+  );
+create unique index if not exists history_class_member_unique
+  on public.history(class_id, member_id) where member_id is not null;
+
 -- Cấu hình admin: chỉ lưu hash, không lưu mật khẩu thô
 create table if not exists public.admin_settings(
   id integer primary key default 1 check(id=1),
@@ -308,56 +318,51 @@ begin
 end;
 $$;
 
--- Đếm số thành viên đã được phân vào từng nhóm. 0 = không giới hạn.
-create or replace function public.group_counts(p_class_id uuid)
-returns jsonb
-language sql
-security definer
-set search_path = public
-as $$
-  select coalesce(jsonb_object_agg(group_id::text, member_count), '{}'::jsonb)
-  from (
-    select g.id as group_id, count(distinct h.member_id)::integer as member_count
-    from public.groups g
-    left join public.history h
-      on h.group_id = g.id
-     and h.class_id = p_class_id
-    where g.class_id = p_class_id
-    group by g.id
-  ) x;
-$$;
+-- Chọn nhóm + kiểm tra sức chứa + lưu lịch sử trong cùng một transaction.
+drop function if exists public.assign_member(uuid,uuid);
+create or replace function public.assign_member(p_class_id uuid, p_member_id uuid)
+returns jsonb language plpgsql security definer set search_path=public,extensions as $$
+declare
+  v_existing uuid; v_group_id uuid; v_group_name text; v_total numeric:=0; v_pick numeric; v_acc numeric:=0; v_count integer; r record;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_class_id::text,0));
+  if not exists(select 1 from public.members where id=p_member_id and class_id=p_class_id) then
+    return jsonb_build_object('error','MEMBER_NOT_IN_CLASS');
+  end if;
+  select group_id into v_existing from public.history where class_id=p_class_id and member_id=p_member_id order by created_at desc,id desc limit 1;
+  if v_existing is not null then
+    select name into v_group_name from public.groups where id=v_existing;
+    return jsonb_build_object('ok',true,'already_assigned',true,'group_id',v_existing,'group_name',v_group_name);
+  end if;
+  select coalesce(sum(mw.percent),0) into v_total
+  from public.member_weights mw join public.groups g on g.id=mw.group_id
+  where mw.member_id=p_member_id and g.class_id=p_class_id and mw.percent>0
+    and (g.max_members=0 or (select count(distinct h.member_id) from public.history h where h.class_id=p_class_id and h.group_id=g.id)<g.max_members);
+  if v_total<=0 then return jsonb_build_object('error','NO_AVAILABLE_GROUP'); end if;
+  v_pick=random()*v_total;
+  for r in select g.id,g.name,mw.percent,(select count(distinct h.member_id)::integer from public.history h where h.class_id=p_class_id and h.group_id=g.id) member_count
+    from public.member_weights mw join public.groups g on g.id=mw.group_id
+    where mw.member_id=p_member_id and g.class_id=p_class_id and mw.percent>0
+      and (g.max_members=0 or (select count(distinct h.member_id) from public.history h where h.class_id=p_class_id and h.group_id=g.id)<g.max_members)
+    order by g.position,g.created_at loop
+      v_acc:=v_acc+r.percent;
+      if v_pick<v_acc then v_group_id:=r.id;v_group_name:=r.name;v_count:=r.member_count;exit;end if;
+  end loop;
+  if v_group_id is null then return jsonb_build_object('error','NO_AVAILABLE_GROUP'); end if;
+  insert into public.history(class_id,member_id,group_id) values(p_class_id,p_member_id,v_group_id);
+  return jsonb_build_object('ok',true,'already_assigned',false,'group_id',v_group_id,'group_name',v_group_name,'member_count',v_count+1);
+end; $$;
+grant execute on function public.assign_member(uuid,uuid) to anon,authenticated;
 
-create or replace function public.member_assignment(p_class_id uuid, p_member_id uuid)
-returns jsonb
-language sql
-security definer
-set search_path = public
-as $$
-  select coalesce(
-    (select jsonb_build_object('group_id', h.group_id)
-     from public.history h
-     where h.class_id = p_class_id
-       and h.member_id = p_member_id
-     order by h.created_at desc
-     limit 1),
-    '{}'::jsonb
-  );
-$$;
+create or replace function public.group_counts(p_class_id uuid) returns jsonb language sql security definer set search_path=public as $$
+ select coalesce(jsonb_object_agg(group_id::text,member_count),'{}'::jsonb) from (select g.id group_id,count(distinct h.member_id)::integer member_count from public.groups g left join public.history h on h.group_id=g.id and h.class_id=p_class_id where g.class_id=p_class_id group by g.id)x; $$;
+grant execute on function public.group_counts(uuid) to anon,authenticated;
 
-grant execute on function public.group_counts(uuid) to anon, authenticated;
-grant execute on function public.member_assignment(uuid,uuid) to anon, authenticated;
+create or replace function public.member_assignment(p_class_id uuid,p_member_id uuid) returns jsonb language sql security definer set search_path=public as $$
+ select coalesce((select jsonb_build_object('group_id',h.group_id) from public.history h where h.class_id=p_class_id and h.member_id=p_member_id order by h.created_at desc,h.id desc limit 1),'{}'::jsonb); $$;
+grant execute on function public.member_assignment(uuid,uuid) to anon,authenticated;
 
--- Cho phép trang GitHub Pages gọi 2 RPC
-grant execute on function public.admin_login(text) to anon, authenticated;
-grant execute on function public.admin_api(text,text,jsonb) to anon, authenticated;
-
--- Đặt mật khẩu admin lần đầu.
--- Nếu chạy lại dòng này, mật khẩu sẽ được đổi thành BuiAdmin@2026.
-insert into public.admin_settings(id,password_hash)
-values(1, extensions.crypt('BuiAdmin@2026', extensions.gen_salt('bf')))
-on conflict(id) do update
-set password_hash=excluded.password_hash,
-    updated_at=now();
-
--- Làm mới PostgREST schema cache để RPC mới nhận đúng chữ ký hàm.
-notify pgrst, 'reload schema';
+grant execute on function public.admin_login(text) to anon,authenticated;
+grant execute on function public.admin_api(text,text,jsonb) to anon,authenticated;
+insert into public.admin_settings(id,password_hash) values(1,extensions.crypt('BuiAdmin@2026',extensions.gen_salt('bf'))) on conflict(id) do nothing;
+notify pgrst,'reload schema';
