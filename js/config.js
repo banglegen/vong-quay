@@ -1,8 +1,39 @@
 const SUPABASE_URL = "https://yoalbkrfqwbbhqyeywns.supabase.co/rest/v1/";
 const SUPABASE_KEY = "sb_publishable_O5QTQnlLlPoVHAe46-kRlg_ST8itddP";
+
 const REST = SUPABASE_URL + "/rest/v1";
-const AUTH = SUPABASE_URL + "/auth/v1";
-function headers(token, extra={}){return Object.assign({apikey:SUPABASE_KEY,Authorization:"Bearer "+(token||SUPABASE_KEY),"Content-Type":"application/json"},extra)}
-async function rest(path,opt={}){let r=await fetch(REST+path,Object.assign({headers:headers()},opt));if(!r.ok)throw Error(await r.text());return r.status===204?null:r.json()}
-async function auth(path,opt={}){let r=await fetch(AUTH+path,Object.assign({headers:headers()},opt)),d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error_description||d.msg||d.message||"Auth error");return d}
-function requireConfig(){if(!SUPABASE_URL||!SUPABASE_KEY)throw Error("Chưa điền Supabase URL và Publishable key trong js/config.js")}
+
+function apiHeaders(extra) {
+  return Object.assign({
+    apikey: SUPABASE_KEY,
+    Authorization: "Bearer " + SUPABASE_KEY,
+    "Content-Type": "application/json"
+  }, extra || {});
+}
+
+async function rest(path, options) {
+  requireConfig();
+  var r = await fetch(REST + path, Object.assign({headers: apiHeaders()}, options || {}));
+  if (!r.ok) throw new Error(await r.text());
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+async function rpc(name, args) {
+  requireConfig();
+  var r = await fetch(REST + "/rpc/" + name, {
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify(args || {})
+  });
+  var text = await r.text();
+  var data = text ? JSON.parse(text) : null;
+  if (!r.ok) throw new Error(data && (data.message || data.error_description || data.hint) || text || "RPC error");
+  return data;
+}
+
+function requireConfig() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Chưa điền Supabase URL và Publishable key trong js/config.js");
+  }
+}

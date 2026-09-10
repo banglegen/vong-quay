@@ -1,18 +1,276 @@
-const token=localStorage.getItem("sb_access");if(!token)location.href="index.html";
-const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])),H=extra=>headers(token,extra||{});
-async function A(path,opt={}){let r=await fetch(REST+path,Object.assign({headers:H()},opt));if(r.status===401){localStorage.removeItem("sb_access");location.href="index.html"}if(!r.ok)throw Error(await r.text());return r.status===204?null:r.json()}
-let classes=[],cls=null,groups=[],members=[];
-async function load(){classes=await A("/classes?select=*&order=created_at.asc");if(!classes.length){cls=null;groups=[];members=[];render();return}let id=localStorage.getItem("class_id");cls=classes.find(x=>x.id===id)||classes[0];localStorage.setItem("class_id",cls.id);groups=await A("/groups?select=*&class_id=eq."+cls.id+"&order=position.asc");members=await A("/members?select=*&class_id=eq."+cls.id+"&order=name.asc");let ws=members.length?await A("/member_weights?select=*&member_id=in.("+members.map(x=>x.id).join(",")+")"):[];members.forEach(m=>{m.w={};ws.filter(x=>x.member_id===m.id).forEach(x=>m.w[x.group_id]=+x.percent)});render();loadHistory()}
-function render(){ $("classSelect").innerHTML=classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");if(cls)$("classSelect").value=cls.id;$("memberList").innerHTML=members.length?members.map(m=>`<div class="list-row"><span>${esc(m.name)}</span><button class="mini" data-edit-m="${m.id}">Sửa</button><button class="mini red" data-del-m="${m.id}">Xóa</button></div>`).join(""):"<div class=empty>Chưa có thành viên.</div>";$("groupList").innerHTML=groups.length?groups.map(g=>`<div class="list-row"><span>${esc(g.name)}</span><button class="mini" data-edit-g="${g.id}">Sửa</button><button class="mini red" data-del-g="${g.id}">Xóa</button></div>`).join(""):"<div class=empty>Chưa có nhóm.</div>";if(!members.length||!groups.length){$("weights").innerHTML="<div class=empty>Cần có thành viên và nhóm.</div>";return}$("weights").innerHTML=`<div class=table-scroll><table><tr><th>Thành viên</th>${groups.map(g=>`<th>${esc(g.name)}</th>`).join("")}<th>Tổng</th></tr>${members.map(m=>`<tr><td><b>${esc(m.name)}</b></td>${groups.map(g=>`<td><input class=weight data-m="${m.id}" data-g="${g.id}" type=number min=0 max=100 value="${m.w[g.id]||0}"></td>`).join("")}<td class=total data-total="${m.id}">0%</td></tr>`).join("")}</table></div>`;totals()}
-function totals(){document.querySelectorAll(".total").forEach(x=>{let t=0;document.querySelectorAll(`.weight[data-m="${x.dataset.total}"]`).forEach(i=>t+=+i.value||0);x.textContent=t+"%";x.className="total "+(t===100?"ok":"bad")})}
-async function loadHistory(){if(!cls){$("history").innerHTML="<div class=empty>Chưa có lớp.</div>";return}let r=await A("/history?select=id,created_at,members(name),groups(name)&class_id=eq."+cls.id+"&order=created_at.desc&limit=300");$("history").innerHTML=r.length?r.map(x=>`<div class=history-row><b>${esc(x.members?.name||"?")}</b><span>→ ${esc(x.groups?.name||"?")}</span><small>${new Date(x.created_at).toLocaleString("vi-VN")}</small></div>`).join(""):"<div class=empty>Chưa có lịch sử.</div>"}
-$("classSelect").onchange=async()=>{cls=classes.find(c=>c.id===$("classSelect").value);localStorage.setItem("class_id",cls.id);await load()};
-$("addClass").onclick=async()=>{let name=$("className").value.trim();if(!name)return;await A("/classes",{method:"POST",headers:H({Prefer:"return=minimal"}),body:JSON.stringify({name,is_active:true})});$("className").value="";await load()};
-$("renameClass").onclick=async()=>{if(!cls)return;let n=prompt("Tên lớp:",cls.name);if(n&&n.trim())await A("/classes?id=eq."+cls.id,{method:"PATCH",body:JSON.stringify({name:n.trim()})});await load()};
-$("deleteClass").onclick=async()=>{if(cls&&confirm("Xóa lớp và toàn bộ dữ liệu?")){await A("/classes?id=eq."+cls.id,{method:"DELETE"});localStorage.removeItem("class_id");await load()}};
-$("addMember").onclick=async()=>{if(!cls)return;let name=$("memberName").value.trim();if(!name)return;let r=await A("/members",{method:"POST",headers:H({Prefer:"return=representation"}),body:JSON.stringify({class_id:cls.id,name})}),m=r[0];if(groups.length)await A("/member_weights",{method:"POST",headers:H({Prefer:"return=minimal"}),body:JSON.stringify(groups.map((g,i)=>({member_id:m.id,group_id:g.id,percent:i===0?100:0})))});$("memberName").value="";await load()};
-$("addGroup").onclick=async()=>{if(!cls)return;let name=$("groupName").value.trim();if(!name)return;let r=await A("/groups",{method:"POST",headers:H({Prefer:"return=representation"}),body:JSON.stringify({class_id:cls.id,name,position:groups.length})}),g=r[0];if(members.length)await A("/member_weights",{method:"POST",headers:H({Prefer:"return=minimal"}),body:JSON.stringify(members.map(m=>({member_id:m.id,group_id:g.id,percent:0})))});$("groupName").value="";await load()};
-$("memberList").onclick=async e=>{let id=e.target.dataset.editM||e.target.dataset.delM;if(e.target.dataset.editM){let m=members.find(x=>x.id===id),n=prompt("Tên thành viên:",m.name);if(n&&n.trim())await A("/members?id=eq."+id,{method:"PATCH",body:JSON.stringify({name:n.trim()})});await load()}else if(e.target.dataset.delM&&confirm("Xóa thành viên?")){await A("/members?id=eq."+id,{method:"DELETE"});await load()}};
-$("groupList").onclick=async e=>{let id=e.target.dataset.editG||e.target.dataset.delG;if(e.target.dataset.editG){let g=groups.find(x=>x.id===id),n=prompt("Tên nhóm:",g.name);if(n&&n.trim())await A("/groups?id=eq."+id,{method:"PATCH",body:JSON.stringify({name:n.trim()})});await load()}else if(e.target.dataset.delG&&confirm("Xóa nhóm?")){await A("/groups?id=eq."+id,{method:"DELETE"});await load()}};
-$("saveWeights").onclick=async()=>{let p=[];for(let m of members){let total=0;for(let g of groups){let i=document.querySelector(`.weight[data-m="${m.id}"][data-g="${g.id}"]`),v=Math.max(0,Math.min(100,+i.value||0));total+=v;p.push({member_id:m.id,group_id:g.id,percent:v})}if(total!==100){alert(m.name+" phải đúng 100%.");return}}await A("/member_weights?on_conflict=member_id,group_id",{method:"POST",headers:H({Prefer:"resolution=merge-duplicates,return=minimal"}),body:JSON.stringify(p)});alert("Đã lưu xác suất.");await load()};document.addEventListener("input",e=>{if(e.target.classList.contains("weight"))totals()});
-$("clearHistory").onclick=async()=>{if(cls&&confirm("Xóa lịch sử?")){await A("/history?class_id=eq."+cls.id,{method:"DELETE"});await loadHistory()}};$("logoutBtn").onclick=async()=>{try{await auth("/logout",{method:"POST",headers:H()})}catch(e){}localStorage.clear();location.href="index.html"};load().catch(e=>{$"adminStatus".textContent=e.message;$(("adminStatus")).className="status error"});
+var token = sessionStorage.getItem("groupPickerAdminToken");
+
+if (!token) location.href = "index.html";
+
+var $ = function(id) { return document.getElementById(id); };
+var esc = function(s) {
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+};
+
+async function admin(action, payload) {
+  var data = await rpc("admin_api", {
+    p_token: token,
+    p_action: action,
+    p_payload: payload || {}
+  });
+
+  if (data && data.error === "INVALID_SESSION") {
+    sessionStorage.removeItem("groupPickerAdminToken");
+    location.href = "index.html";
+  }
+
+  return data;
+}
+
+var classes = [];
+var cls = null;
+var groups = [];
+var members = [];
+
+async function load() {
+  classes = await admin("classes_list");
+
+  if (!classes.length) {
+    cls = null;
+    groups = [];
+    members = [];
+    render();
+    $("historyList").innerHTML = "<div class='empty'>Chưa có lớp.</div>";
+    return;
+  }
+
+  var saved = localStorage.getItem("class_id");
+  cls = classes.find(function(c) { return c.id === saved; }) || classes[0];
+  localStorage.setItem("class_id", cls.id);
+
+  groups = await admin("groups_list", {class_id: cls.id});
+  members = await admin("members_list", {class_id: cls.id});
+
+  var ws = await admin("weights_list", {class_id: cls.id});
+
+  members.forEach(function(m) {
+    m.w = {};
+    ws.forEach(function(w) {
+      if (w.member_id === m.id) m.w[w.group_id] = Number(w.percent);
+    });
+  });
+
+  render();
+  await loadHistory();
+}
+
+function render() {
+  $("classSelect").innerHTML = classes.map(function(c) {
+    return "<option value='" + c.id + "'>" + esc(c.name) + "</option>";
+  }).join("");
+
+  if (cls) $("classSelect").value = cls.id;
+
+  $("memberList").innerHTML = members.length
+    ? members.map(function(m) {
+        return "<div class='list-row'><span>" + esc(m.name) +
+          "</span><button class='mini' data-edit-m='" + m.id + "'>Sửa</button>" +
+          "<button class='mini red' data-del-m='" + m.id + "'>Xóa</button></div>";
+      }).join("")
+    : "<div class='empty'>Chưa có thành viên.</div>";
+
+  $("groupList").innerHTML = groups.length
+    ? groups.map(function(g) {
+        return "<div class='list-row'><span>" + esc(g.name) +
+          "</span><button class='mini' data-edit-g='" + g.id + "'>Sửa</button>" +
+          "<button class='mini red' data-del-g='" + g.id + "'>Xóa</button></div>";
+      }).join("")
+    : "<div class='empty'>Chưa có nhóm.</div>";
+
+  if (!members.length || !groups.length) {
+    $("weightsTable").innerHTML = "<div class='empty'>Cần có thành viên và nhóm.</div>";
+    return;
+  }
+
+  $("weightsTable").innerHTML =
+    "<div class='table-scroll'><table><tr><th>Thành viên</th>" +
+    groups.map(function(g) { return "<th>" + esc(g.name) + "</th>"; }).join("") +
+    "<th>Tổng</th></tr>" +
+    members.map(function(m) {
+      return "<tr><td><b>" + esc(m.name) + "</b></td>" +
+        groups.map(function(g) {
+          return "<td><input class='weight' data-m='" + m.id +
+            "' data-g='" + g.id +
+            "' type='number' min='0' max='100' step='0.01' value='" +
+            (m.w[g.id] || 0) + "'></td>";
+        }).join("") +
+        "<td class='total' data-total='" + m.id + "'>0%</td></tr>";
+    }).join("") +
+    "</table></div>";
+
+  totals();
+}
+
+function totals() {
+  document.querySelectorAll(".total").forEach(function(x) {
+    var t = 0;
+    document.querySelectorAll(".weight[data-m='" + x.dataset.total + "']").forEach(function(i) {
+      t += Number(i.value) || 0;
+    });
+
+    t = Math.round(t * 100) / 100;
+    x.textContent = t + "%";
+    x.className = "total " + (t === 100 ? "ok" : "bad");
+  });
+}
+
+async function loadHistory() {
+  if (!cls) {
+    $("historyList").innerHTML = "<div class='empty'>Chưa có lớp.</div>";
+    return;
+  }
+
+  var r = await admin("history_list", {class_id: cls.id});
+
+  $("historyList").innerHTML = r.length
+    ? r.map(function(x) {
+        return "<div class='history-row'><b>" + esc(x.member_name || "?") +
+          "</b><span>→ " + esc(x.group_name || "?") +
+          "</span><small>" + new Date(x.created_at).toLocaleString("vi-VN") +
+          "</small></div>";
+      }).join("")
+    : "<div class='empty'>Chưa có lịch sử.</div>";
+}
+
+$("classSelect").onchange = async function() {
+  cls = classes.find(function(c) { return c.id === $("classSelect").value; });
+  localStorage.setItem("class_id", cls.id);
+  await load();
+};
+
+$("addClassBtn").onclick = async function() {
+  var name = $("className").value.trim();
+  if (!name) return;
+
+  await admin("class_add", {name: name});
+  $("className").value = "";
+  await load();
+};
+
+$("deleteClassBtn").onclick = async function() {
+  if (!cls) return;
+
+  if (confirm("Xóa lớp và toàn bộ dữ liệu của lớp này?")) {
+    await admin("class_delete", {id: cls.id});
+    localStorage.removeItem("class_id");
+    await load();
+  }
+};
+
+$("addMemberBtn").onclick = async function() {
+  if (!cls) return;
+
+  var name = $("memberName").value.trim();
+  if (!name) return;
+
+  await admin("member_add", {class_id: cls.id, name: name});
+  $("memberName").value = "";
+  await load();
+};
+
+$("addGroupBtn").onclick = async function() {
+  if (!cls) return;
+
+  var name = $("groupName").value.trim();
+  if (!name) return;
+
+  await admin("group_add", {class_id: cls.id, name: name});
+  $("groupName").value = "";
+  await load();
+};
+
+$("memberList").onclick = async function(e) {
+  var id = e.target.dataset.editM || e.target.dataset.delM;
+
+  if (e.target.dataset.editM) {
+    var m = members.find(function(x) { return x.id === id; });
+    var n = prompt("Tên thành viên:", m.name);
+
+    if (n && n.trim()) {
+      await admin("member_update", {id: id, name: n.trim()});
+      await load();
+    }
+  } else if (e.target.dataset.delM && confirm("Xóa thành viên?")) {
+    await admin("member_delete", {id: id});
+    await load();
+  }
+};
+
+$("groupList").onclick = async function(e) {
+  var id = e.target.dataset.editG || e.target.dataset.delG;
+
+  if (e.target.dataset.editG) {
+    var g = groups.find(function(x) { return x.id === id; });
+    var n = prompt("Tên nhóm:", g.name);
+
+    if (n && n.trim()) {
+      await admin("group_update", {id: id, name: n.trim()});
+      await load();
+    }
+  } else if (e.target.dataset.delG && confirm("Xóa nhóm?")) {
+    await admin("group_delete", {id: id});
+    await load();
+  }
+};
+
+$("saveWeightsBtn").onclick = async function() {
+  var rows = [];
+
+  for (var m of members) {
+    var total = 0;
+
+    for (var g of groups) {
+      var input = document.querySelector(
+        ".weight[data-m='" + m.id + "'][data-g='" + g.id + "']"
+      );
+
+      var value = Math.max(0, Math.min(100, Number(input.value) || 0));
+      value = Math.round(value * 100) / 100;
+      total += value;
+
+      rows.push({
+        member_id: m.id,
+        group_id: g.id,
+        percent: value
+      });
+    }
+
+    total = Math.round(total * 100) / 100;
+
+    if (total !== 100) {
+      alert(m.name + " phải có tổng xác suất đúng 100%.");
+      return;
+    }
+  }
+
+  await admin("weights_save", {rows: rows});
+  alert("Đã lưu xác suất.");
+  await load();
+};
+
+document.addEventListener("input", function(e) {
+  if (e.target.classList.contains("weight")) totals();
+});
+
+$("clearHistoryBtn").onclick = async function() {
+  if (cls && confirm("Xóa toàn bộ lịch sử của lớp này?")) {
+    await admin("history_delete", {class_id: cls.id});
+    await loadHistory();
+  }
+};
+
+$("logoutBtn").onclick = function() {
+  sessionStorage.removeItem("groupPickerAdminToken");
+  location.href = "index.html";
+};
+
+load().catch(function(e) {
+  $("historyList").innerHTML = "<div class='empty'>" + esc(e.message) + "</div>";
+});
