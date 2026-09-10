@@ -1,23 +1,12 @@
-# Group Picker — Green + Supabase
+# Group Picker - Supabase complete
 
-## Điểm đã sửa
-- Animation luôn khớp chính xác với nhóm được chọn.
-- Vòng quay luôn chia đều theo số nhóm, KHÔNG bị thay đổi bởi %.
-- % chỉ dùng để weighted random chọn kết quả.
-- Giao diện tone xanh lá.
-- Có schema database Supabase trong `supabase/schema.sql`.
-- Nếu chưa cấu hình Supabase, website vẫn chạy demo bằng localStorage.
+1. Supabase SQL Editor: chạy `supabase/schema.sql`.
+2. Authentication -> Users -> Add user -> tạo tài khoản admin.
+3. Copy User UID, chạy `insert into public.admins(user_id) values ('USER-UID');`
+4. Project Settings -> API Keys: lấy Project URL + Publishable key.
+5. Điền vào `js/config.js`.
+6. Upload toàn bộ thư mục lên GitHub Pages.
 
-## Chạy database
-1. Tạo project Supabase.
-2. Mở SQL Editor.
-3. Chạy toàn bộ `supabase/schema.sql`.
-4. Vào Project Settings -> API.
-5. Mở `js/config.js`, điền:
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
+Không đưa Secret key/service_role vào frontend.
 
-## Lưu ý bảo mật
-Mật khẩu `ADMIN_PASSWORD` trong frontend chỉ phù hợp demo/local.
-Website public thật nên dùng Supabase Auth cho admin và RLS chặt chẽ.
-# vong-quay
+Dữ liệu lớp, nhóm, thành viên, xác suất và lịch sử đều lưu chung trên Supabase. Vòng quay chia đều; xác suất chỉ chọn kết quả. Animation nhận chính index kết quả nên dừng đúng nhóm.
