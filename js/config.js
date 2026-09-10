@@ -1,5 +1,5 @@
-const SUPABASE_URL = "https://yoalbkrfqwbbhqyeywns.supabase.co/rest/v1/";
-const SUPABASE_KEY = "sb_publishable_O5QTQnlLlPoVHAe46-kRlg_ST8itddP";
+const SUPABASE_URL = "";
+const SUPABASE_KEY = "";
 const REST = SUPABASE_URL + "/rest/v1";
 const AUTH = SUPABASE_URL + "/auth/v1";
 function headers(token, extra={}){return Object.assign({apikey:SUPABASE_KEY,Authorization:"Bearer "+(token||SUPABASE_KEY),"Content-Type":"application/json"},extra)}
