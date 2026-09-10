@@ -93,6 +93,8 @@ drop policy if exists admin_sessions_no_read on public.admin_sessions;
 create policy admin_sessions_no_read on public.admin_sessions for select to anon,authenticated using (false);
 
 -- Đăng nhập admin bằng mật khẩu
+drop function if exists public.admin_login(text);
+
 create or replace function public.admin_login(p_password text)
 returns text
 language plpgsql
@@ -107,15 +109,15 @@ begin
   from public.admin_settings
   where id = 1;
 
-  if v_hash is null or p_password is null or v_hash <> crypt(p_password, v_hash) then
+  if v_hash is null or p_password is null or v_hash <> extensions.crypt(p_password, v_hash) then
     raise exception 'INVALID_PASSWORD';
   end if;
 
-  v_token := encode(gen_random_bytes(32), 'hex');
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
 
   insert into public.admin_sessions(token_hash, expires_at)
   values (
-    encode(digest(v_token, 'sha256'), 'hex'),
+    encode(extensions.digest(v_token, 'sha256'), 'hex'),
     now() + interval '12 hours'
   );
 
@@ -126,6 +128,8 @@ end;
 $$;
 
 -- API admin duy nhất. Mọi thao tác CRUD đi qua đây.
+drop function if exists public.admin_api(text,text,jsonb);
+
 create or replace function public.admin_api(
   p_token text,
   p_action text,
@@ -150,7 +154,7 @@ declare
 begin
   select exists(
     select 1 from public.admin_sessions
-    where token_hash = encode(digest(coalesce(p_token,''), 'sha256'), 'hex')
+    where token_hash = encode(extensions.digest(coalesce(p_token,''), 'sha256'), 'hex')
       and expires_at > now()
   ) into v_ok;
 
@@ -350,7 +354,10 @@ grant execute on function public.admin_api(text,text,jsonb) to anon, authenticat
 -- Đặt mật khẩu admin lần đầu.
 -- Nếu chạy lại dòng này, mật khẩu sẽ được đổi thành BuiAdmin@2026.
 insert into public.admin_settings(id,password_hash)
-values(1, crypt('BuiAdmin@2026', gen_salt('bf')))
+values(1, extensions.crypt('BuiAdmin@2026', extensions.gen_salt('bf')))
 on conflict(id) do update
 set password_hash=excluded.password_hash,
     updated_at=now();
+
+-- Làm mới PostgREST schema cache để RPC mới nhận đúng chữ ký hàm.
+notify pgrst, 'reload schema';
