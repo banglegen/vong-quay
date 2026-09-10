@@ -243,12 +243,31 @@ $("loginBtn").addEventListener("click", async function() {
   try {
     var token = await rpc("admin_login", {p_password: password});
 
-    if (!token) throw new Error("Sai mật khẩu.");
+    if (!token || typeof token !== "string") {
+      throw new Error("Supabase không trả về phiên đăng nhập.");
+    }
+
+    // Kiểm tra token ngay trước khi chuyển sang trang Admin.
+    var check = await rpc("admin_api", {
+      p_token: token,
+      p_action: "classes_list",
+      p_payload: {}
+    });
+
+    if (check && check.error === "INVALID_SESSION") {
+      throw new Error("Token đăng nhập không hợp lệ.");
+    }
 
     sessionStorage.setItem("groupPickerAdminToken", token);
     location.href = "admin.html";
   } catch (e) {
-    $("loginError").textContent = "Sai mật khẩu.";
+    console.error("ADMIN LOGIN ERROR:", e);
+    var msg = e && e.message ? e.message : String(e);
+    if (msg.indexOf("INVALID_PASSWORD") !== -1) {
+      $("loginError").textContent = "Sai mật khẩu.";
+    } else {
+      $("loginError").textContent = "Lỗi đăng nhập: " + msg;
+    }
   } finally {
     $("loginBtn").disabled = false;
   }

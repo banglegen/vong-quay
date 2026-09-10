@@ -68,3 +68,14 @@ Trang admin:
 Admin login dùng một mật khẩu duy nhất và phiên đăng nhập có thời hạn.
 
 > Lưu ý: các trọng số hiện được trang thành viên đọc từ Supabase để thực hiện weighted random phía trình duyệt. Nếu cần giấu tuyệt đối các trọng số khỏi người dùng, nên chuyển việc chọn nhóm sang RPC/Edge Function phía server.
+
+
+## 5. Nếu đăng nhập không được
+
+Sau khi chạy `schema.sql`, test trong Supabase SQL Editor:
+
+```sql
+select public.admin_login('BuiAdmin@2026');
+```
+
+Nếu trả về một chuỗi token dài thì database đã hoạt động. Sau khi cập nhật file web, dùng `Ctrl + F5` để tải JavaScript mới trên GitHub Pages.

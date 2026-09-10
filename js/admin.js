@@ -1,6 +1,8 @@
 var token = sessionStorage.getItem("groupPickerAdminToken");
 
-if (!token) location.href = "index.html";
+if (!token) {
+  location.href = "index.html";
+}
 
 var $ = function(id) { return document.getElementById(id); };
 var esc = function(s) {
@@ -10,18 +12,25 @@ var esc = function(s) {
 };
 
 async function admin(action, payload) {
-  var data = await rpc("admin_api", {
-    p_token: token,
-    p_action: action,
-    p_payload: payload || {}
-  });
+  try {
+    var data = await rpc("admin_api", {
+      p_token: token,
+      p_action: action,
+      p_payload: payload || {}
+    });
 
-  if (data && data.error === "INVALID_SESSION") {
-    sessionStorage.removeItem("groupPickerAdminToken");
-    location.href = "index.html";
+    if (data && data.error === "INVALID_SESSION") {
+      sessionStorage.removeItem("groupPickerAdminToken");
+      alert("Phiên Admin đã hết hạn. Vui lòng đăng nhập lại.");
+      location.href = "index.html";
+      return null;
+    }
+
+    return data;
+  } catch (e) {
+    console.error("ADMIN API ERROR:", action, e);
+    throw e;
   }
-
-  return data;
 }
 
 var classes = [];

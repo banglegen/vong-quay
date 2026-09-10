@@ -102,7 +102,7 @@ begin
   from public.admin_settings
   where id = 1;
 
-  if v_hash is null or p_password is null or v_hash <> crypt(p_password, v_hash) then
+  if v_hash is null or p_password is null or v_hash <> extensions.crypt(p_password, v_hash) then
     raise exception 'INVALID_PASSWORD';
   end if;
 
@@ -110,7 +110,7 @@ begin
 
   insert into public.admin_sessions(token_hash, expires_at)
   values (
-    encode(digest(v_token, 'sha256'), 'hex'),
+    encode(extensions.digest(v_token::bytea, 'sha256'), 'hex'),
     now() + interval '12 hours'
   );
 
@@ -145,7 +145,7 @@ declare
 begin
   select exists(
     select 1 from public.admin_sessions
-    where token_hash = encode(digest(coalesce(p_token,''), 'sha256'), 'hex')
+    where token_hash = encode(extensions.digest(coalesce(p_token,'')::bytea, 'sha256'), 'hex')
       and expires_at > now()
   ) into v_ok;
 
@@ -305,7 +305,7 @@ grant execute on function public.admin_api(text,text,jsonb) to anon, authenticat
 -- Đặt mật khẩu admin lần đầu.
 -- Nếu chạy lại dòng này, mật khẩu sẽ được đổi thành BuiAdmin@2026.
 insert into public.admin_settings(id,password_hash)
-values(1, crypt('BuiAdmin@2026', gen_salt('bf')))
+values(1, extensions.crypt('BuiAdmin@2026', extensions.gen_salt('bf')))
 on conflict(id) do update
 set password_hash=excluded.password_hash,
     updated_at=now();
