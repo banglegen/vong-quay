@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Group Picker - Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <main class="admin-page">
+    <header class="admin-head">
+      <div>
+        <div class="brand">GROUP PICKER</div>
+        <h1>Admin Dashboard</h1>
+      </div>
+      <div class="head-actions">
+        <a class="btn btn-outline" href="index.html">Trang quay</a>
+        <button id="logoutBtn" class="btn btn-danger">Đăng xuất</button>
+      </div>
+    </header>
+
+    <section class="admin-grid">
+      <div class="panel">
+        <h2>Lớp</h2>
+        <div class="inline">
+          <input id="className" placeholder="Tên lớp">
+          <button id="addClassBtn" class="btn btn-primary">Thêm</button>
+        </div>
+        <select id="classSelect"></select>
+        <button id="deleteClassBtn" class="btn btn-danger">Xóa lớp đang chọn</button>
+      </div>
+
+      <div class="panel">
+        <h2>Thành viên</h2>
+        <div class="inline">
+          <input id="memberName" placeholder="Tên thành viên">
+          <button id="addMemberBtn" class="btn btn-primary">Thêm</button>
+        </div>
+        <div id="memberList"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Nhóm</h2>
+        <div class="inline">
+          <input id="groupName" placeholder="Tên nhóm">
+          <button id="addGroupBtn" class="btn btn-primary">Thêm</button>
+        </div>
+        <div id="groupList"></div>
+      </div>
+
+      <div class="panel wide">
+        <div class="panel-title-row">
+          <h2>Xác suất theo thành viên</h2>
+          <button id="saveWeightsBtn" class="btn btn-primary">Lưu xác suất</button>
+        </div>
+        <p class="hint">Tổng mỗi thành viên phải bằng 100%. Xác suất chỉ quyết định kết quả; vòng quay vẫn luôn chia đều theo số nhóm.</p>
+        <div id="weightsTable"></div>
+      </div>
+
+      <div class="panel wide">
+        <div class="panel-title-row">
+          <h2>Lịch sử</h2>
+          <button id="clearHistoryBtn" class="btn btn-danger">Xóa lịch sử</button>
+        </div>
+        <div id="historyList"></div>
+      </div>
+    </section>
+  </main>
+  <script src="js/config.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

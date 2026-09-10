@@ -1,0 +1,28 @@
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.panel{background:#fff;border:1px solid #ccebd8;border-radius:20px;padding:20px;box-shadow:0 10px 30px rgba(7,85,46,.08)}
+.panel.wide{grid-column:1/-1}
+.panel h2{margin:0 0 15px;color:#07552e}
+.inline{display:flex;gap:8px;margin-bottom:10px}
+.inline input{flex:1}
+.list-row,.history-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #e6f2eb}
+.list-row:last-child,.history-row:last-child{border-bottom:0}
+.mini{border:1px solid #efb5b5;background:#fff3f3;color:#bd3333;border-radius:8px;padding:6px 9px;font-weight:700}
+.empty{padding:18px;text-align:center;color:#80958a;background:#f6fcf8;border-radius:10px}
+.hint{color:#71887b;font-size:14px;line-height:1.5}
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:650px}
+th,td{border-bottom:1px solid #e4f0e8;padding:10px;text-align:left}
+th{background:#eefaf2;color:#0a6136}
+td input.weight{width:85px;padding:8px}
+.total{font-weight:900}
+.total.ok{color:#138249}
+.total.bad{color:#c53a3a}
+.history-row small{color:#80958a}
+@media(max-width:760px){
+  .admin-grid{grid-template-columns:1fr}
+  .panel.wide{grid-column:auto}
+  .admin-head{align-items:flex-start;flex-direction:column}
+  .head-actions{width:100%}
+  .head-actions .btn{flex:1}
+  .card{padding:18px}
+}
